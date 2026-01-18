@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { X } from "lucide-react";
-import { NodeData, Connection } from "@/app/types";
+import { NodeData, Connection, ChordItem } from "@/app/types";
 import NodeItem from "./NodeItem";
 
 interface Props {
@@ -10,6 +10,12 @@ interface Props {
   setNodes: React.Dispatch<React.SetStateAction<NodeData[]>>;
   connections: Connection[];
   setConnections: React.Dispatch<React.SetStateAction<Connection[]>>;
+  pendingDragNode: {
+    chord: ChordItem;
+    startX: number;
+    startY: number;
+  } | null;
+  onPendingDragConsumed: () => void;
 }
 
 const NODE_SIZE = 96;
@@ -19,6 +25,8 @@ export default function Canvas({
   setNodes,
   connections,
   setConnections,
+  pendingDragNode,
+  onPendingDragConsumed,
 }: Props) {
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -37,14 +45,45 @@ export default function Canvas({
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
   // --- Helper: Screen to World ---
-  const screenToWorld = (clientX: number, clientY: number) => {
-    if (!canvasRef.current) return { x: 0, y: 0 };
-    const rect = canvasRef.current.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left - viewport.x) / viewport.zoom,
-      y: (clientY - rect.top - viewport.y) / viewport.zoom,
+  const screenToWorld = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!canvasRef.current) return { x: 0, y: 0 };
+      const rect = canvasRef.current.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - viewport.x) / viewport.zoom,
+        y: (clientY - rect.top - viewport.y) / viewport.zoom,
+      };
+    },
+    [viewport.x, viewport.y, viewport.zoom]
+  );
+
+  // --- 사이드바에서 드래그 시작 시 노드 생성 및 드래그 시작 ---
+  useEffect(() => {
+    if (!pendingDragNode) return;
+
+    const { chord, startX, startY } = pendingDragNode;
+    const worldPos = screenToWorld(startX, startY);
+    const newNodeId = `node-${Date.now()}`;
+
+    // 노드 생성 (마우스 중심에 위치)
+    const newNode: NodeData = {
+      id: newNodeId,
+      type: "chord",
+      label: chord.label,
+      color: chord.color,
+      x: worldPos.x - NODE_SIZE / 2,
+      y: worldPos.y - NODE_SIZE / 2,
     };
-  };
+
+    setNodes((prev) => [...prev, newNode]);
+
+    // 드래그 상태 시작 (노드 중앙을 잡고 있는 것처럼)
+    setDragOffset({ x: NODE_SIZE / 2, y: NODE_SIZE / 2 });
+    setDraggingNodeId(newNodeId);
+
+    // pending 상태 소비 완료
+    onPendingDragConsumed();
+  }, [pendingDragNode, screenToWorld, setNodes, onPendingDragConsumed]);
 
   // --- Logic ---
   const handleNodeDragStart = (e: React.MouseEvent, node: NodeData) => {
@@ -60,29 +99,14 @@ export default function Canvas({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0 && !draggingNodeId && !connectingSourceId) {
-      setIsPanning(true);
+    if (e.button === 0 && !draggingNodeId) {
+      if (connectingSourceId) {
+        // 연결 중 캔버스 클릭 시 연결 취소
+        setConnectingSourceId(null);
+      } else {
+        setIsPanning(true);
+      }
     }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const data = e.dataTransfer.getData("chordData");
-    if (!data) return;
-    const { label, color } = JSON.parse(data);
-    const pos = screenToWorld(e.clientX, e.clientY);
-
-    setNodes((prev) => [
-      ...prev,
-      {
-        id: `node-${Date.now()}`,
-        type: "chord",
-        label,
-        color,
-        x: pos.x - NODE_SIZE / 2,
-        y: pos.y - NODE_SIZE / 2,
-      },
-    ]);
   };
 
   const handleMouseMove = useCallback(
@@ -109,25 +133,30 @@ export default function Canvas({
             const SNAP_DIST = 20;
             prev.forEach((target) => {
               if (target.id === draggingNodeId) return;
+              // 수직 정렬 (같은 X)
               if (Math.abs(newX - target.x) < SNAP_DIST) newX = target.x;
+              // 수평 정렬 (같은 Y)
               if (Math.abs(newY - target.y) < SNAP_DIST) newY = target.y;
-              const SPACING = NODE_SIZE + 24;
-              if (Math.abs(newX - (target.x + SPACING)) < SNAP_DIST)
-                newX = target.x + SPACING;
+              // 간격 0 스냅 (딱 붙음) - 드래그 노드가 타겟 오른쪽에 붙음
+              if (Math.abs(newX - (target.x + NODE_SIZE)) < SNAP_DIST)
+                newX = target.x + NODE_SIZE;
+              // 간격 0 스냅 - 드래그 노드가 타겟 왼쪽에 붙음
+              if (Math.abs(newX + NODE_SIZE - target.x) < SNAP_DIST)
+                newX = target.x - NODE_SIZE;
             });
             return { ...node, x: newX, y: newY };
           })
         );
       }
     },
-    [isPanning, draggingNodeId, viewport, dragOffset]
+    [isPanning, draggingNodeId, dragOffset, screenToWorld, setNodes]
   );
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     setIsPanning(false);
     setDraggingNodeId(null);
-    setConnectingSourceId(null); // 허공에 놓으면 연결 취소
-  };
+    // connectingSourceId는 NodeItem의 onConnectEnd에서 처리하므로 여기서는 제거하지 않음
+  }, []);
 
   useEffect(() => {
     window.addEventListener("mousemove", handleMouseMove);
@@ -136,7 +165,7 @@ export default function Canvas({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [handleMouseMove]);
+  }, [handleMouseMove, handleMouseUp]);
 
   const getPath = (x1: number, y1: number, x2: number, y2: number) => {
     const startX = x1 + NODE_SIZE;
@@ -165,11 +194,6 @@ export default function Canvas({
       <div
         ref={canvasRef}
         onMouseDown={handleMouseDown}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-        }}
-        onDrop={handleDrop}
         className="flex-1 relative cursor-crosshair origin-top-left overflow-hidden"
       >
         <div
@@ -227,10 +251,27 @@ export default function Canvas({
               })()}
           </svg>
 
-          {nodes.map((node) => (
+          {nodes.map((node) => {
+            // 인접 노드 체크: 왼쪽/오른쪽에 딱 붙어있는 노드가 있는지
+            const hasLeftNeighbor = nodes.some(
+              (other) =>
+                other.id !== node.id &&
+                other.x + NODE_SIZE === node.x &&
+                Math.abs(other.y - node.y) < NODE_SIZE
+            );
+            const hasRightNeighbor = nodes.some(
+              (other) =>
+                other.id !== node.id &&
+                node.x + NODE_SIZE === other.x &&
+                Math.abs(other.y - node.y) < NODE_SIZE
+            );
+
+            return (
             <NodeItem
               key={node.id}
               node={node}
+              hideLeftPort={hasLeftNeighbor}
+              hideRightPort={hasRightNeighbor}
               onStartDrag={(e) => handleNodeDragStart(e, node)}
               onStartConnect={(e) => {
                 e.stopPropagation();
@@ -268,7 +309,8 @@ export default function Canvas({
                 );
               }}
             />
-          ))}
+          );
+          })}
         </div>
       </div>
     </main>

@@ -3,6 +3,8 @@ import { NodeData } from "@/app/types";
 
 interface Props {
   node: NodeData;
+  hideLeftPort?: boolean;
+  hideRightPort?: boolean;
   onStartDrag: (e: React.MouseEvent) => void;
   onStartConnect: (e: React.MouseEvent) => void;
   onConnectEnd: (e: React.MouseEvent) => void;
@@ -11,6 +13,8 @@ interface Props {
 
 export default function NodeItem({
   node,
+  hideLeftPort = false,
+  hideRightPort = false,
   onStartDrag,
   onStartConnect,
   onConnectEnd,
@@ -44,25 +48,29 @@ export default function NodeItem({
         )}
       </div>
 
-      {/* Input Port (왼쪽) - 투명 히트박스 확대 */}
-      {node.type !== "start" && (
+      {/* Input Port (왼쪽) - 붙어있으면 숨김 */}
+      {node.type !== "start" && !hideLeftPort && (
         <div
           onMouseUp={onConnectEnd}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onConnectEnd(e);
+          }}
           className="absolute -left-4 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center cursor-crosshair z-50"
         >
           <div className="w-4 h-4 bg-gray-300 rounded-full border-2 border-[#1e1e1e] hover:bg-white transition-all" />
         </div>
       )}
 
-      {/* Output Port (오른쪽) - 투명 히트박스 확대 */}
-      <div
-        onMouseDown={onStartConnect}
-        className={`absolute top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center cursor-crosshair z-50
-          ${node.type === "start" ? "-right-4" : "-right-4"}
-        `}
-      >
-        <div className="w-4 h-4 bg-gray-300 rounded-full border-2 border-[#1e1e1e] hover:bg-blue-400 transition-all" />
-      </div>
+      {/* Output Port (오른쪽) - 붙어있으면 숨김 */}
+      {!hideRightPort && (
+        <div
+          onMouseDown={onStartConnect}
+          className="absolute -right-4 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center cursor-crosshair z-50"
+        >
+          <div className="w-4 h-4 bg-gray-300 rounded-full border-2 border-[#1e1e1e] hover:bg-blue-400 transition-all" />
+        </div>
+      )}
 
       {node.type !== "start" && (
         <button
