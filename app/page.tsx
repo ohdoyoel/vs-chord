@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import Header from "@/app/components/layout/Header";
 import ActivityBar from "@/app/components/layout/ActivityBar";
 import Sidebar from "@/app/components/layout/Sidebar";
@@ -34,13 +34,37 @@ export default function VSChordsApp() {
   // 2. 연결선 상태 (이게 꼭 있어야 합니다!)
   const [connections, setConnections] = useState<Connection[]>([]);
 
+  // 3. 사이드바에서 드래그 시작 시 생성될 노드의 드래그 상태
+  const [pendingDragNode, setPendingDragNode] = useState<{
+    chord: ChordItem;
+    startX: number;
+    startY: number;
+  } | null>(null);
+
+  // 사이드바에서 mousedown 시 호출
+  const handlePaletteItemDragStart = useCallback(
+    (chord: ChordItem, clientX: number, clientY: number) => {
+      setPendingDragNode({ chord, startX: clientX, startY: clientY });
+    },
+    []
+  );
+
+  // Canvas에서 노드 생성 완료 후 호출
+  const handlePendingDragConsumed = useCallback(() => {
+    setPendingDragNode(null);
+  }, []);
+
   return (
     <div className="flex flex-col h-screen w-full bg-[#1e1e1e] text-[#cccccc] font-sans text-sm overflow-hidden select-none">
       <Header />
 
       <div className="flex flex-1 overflow-hidden">
         <ActivityBar activeTab={activeTab} onTabChange={setActiveTab} />
-        <Sidebar activeTab={activeTab} palette={CHORD_PALETTE} />
+        <Sidebar
+          activeTab={activeTab}
+          palette={CHORD_PALETTE}
+          onPaletteItemDragStart={handlePaletteItemDragStart}
+        />
 
         {/* Canvas에 connections와 setConnections를 반드시 전달해야 함 */}
         <Canvas
@@ -48,6 +72,8 @@ export default function VSChordsApp() {
           setNodes={setNodes}
           connections={connections}
           setConnections={setConnections}
+          pendingDragNode={pendingDragNode}
+          onPendingDragConsumed={handlePendingDragConsumed}
         />
       </div>
 
